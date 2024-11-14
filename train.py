@@ -201,7 +201,8 @@ def testKodak(step):
                 psnr = 10 * (torch.log(1. / mse_loss) / np.log(10))
                 sumBpp += bpp
                 sumPsnr += psnr
-                msssim = ms_ssim(clipped_recon_image.cpu().detach(), input, data_range=1.0, size_average=True)
+                clipped_image = image[:, :, w_pad//2:w_pad//2+image.size(2), h_pad//2:h_pad//2+image.size(3)]
+                msssim = ms_ssim(clipped_recon_image.cpu().detach(), clipped_image.cpu().detach(), data_range=1.0, size_average=True)
                 msssimDB = -10 * (torch.log(1-msssim) / np.log(10))
                 sumMsssimDB += msssimDB
                 sumMsssim += msssim
@@ -266,7 +267,12 @@ if __name__ == "__main__":
     if args.test:
         testKodak(global_step)
         exit(-1)
-    optimizer = optim.Adam(parameters, lr=base_lr)
+    if args.use_ssm:
+        from lion_pytorch import Lion
+        optimizer = Lion(model.parameters(), weight_decay=0.)
+        # optimizer = optim.Adam(parameters, lr=base_lr, weight_decay=0.)
+    else:
+        optimizer = optim.Adam(parameters, lr=base_lr)
     # save_model(model, 0)
     global train_loader
     tb_logger = SummaryWriter(os.path.join(save_path, 'events'))

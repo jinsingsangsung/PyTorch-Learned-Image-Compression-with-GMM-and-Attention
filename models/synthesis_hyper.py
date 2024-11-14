@@ -19,13 +19,13 @@ class Hyper_synthesis(nn.Module):
     
     def forward(self, x, pad_list):
         x = self.leaky_relu1(self.conv1(x))
+        x = self.leaky_relu2(self.conv2(x))
         if pad_list[1] != (0,0,0,0):
             x = x[:, :, :x.size(2)-pad_list[1][3], :x.size(3)-pad_list[1][1]]
-        x = self.leaky_relu2(self.conv2(x))
         x = self.leaky_relu3(self.conv3(x))
+        x = self.leaky_relu4(self.conv4(x))
         if pad_list[0] != (0,0,0,0):
             x = x[:, :, :x.size(2)-pad_list[0][3], :x.size(3)-pad_list[0][1]]
-        x = self.leaky_relu4(self.conv4(x))
         x = self.conv5(x)
         return x
 
