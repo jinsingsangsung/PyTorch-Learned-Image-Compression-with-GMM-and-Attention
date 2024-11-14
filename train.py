@@ -32,6 +32,7 @@ save_model_freq = 50000
 test_step = 10000
 out_channel_N = 192
 out_channel_M = 320
+num_images = 13830
 parser = argparse.ArgumentParser(description='Pytorch reimplement for variational image compression with a scale hyperprior')
 
 parser.add_argument('-n', '--name', default='', help='experiment name')
@@ -39,8 +40,9 @@ parser.add_argument('-p', '--pretrain', default='', help='load pretrain model')
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--config', dest='config', required=False, help='hyperparameter in json format')
 parser.add_argument('--seed', default=234, type=int, help='seed for random functions, and network initialization')
-parser.add_argument('--train', default='/data/dataset/ImageCompressTrain/Flick_patch/', dest='train', required=False, help='the path of training dataset')
-parser.add_argument('--val', default='/data/dataset/ImageCompressTrain/kodak/', dest='val', required=False, help='the path of validation dataset')
+parser.add_argument('--train', default='/mnt/tmp/Imagenet/test', dest='', required=False, help='the path of training dataset')
+# parser.add_argument('--val', default='/mnt/tmp/kodak/', dest='', required=False, help='the path of validation dataset')
+parser.add_argument('--use_ssm', action='store_true')
 
 
 def parse_config(config):
@@ -186,34 +188,40 @@ def testKodak(step):
         sumMsssim = 0
         sumMsssimDB = 0
         cnt = 0
-        for batch_idx, input in enumerate(test_loader):
-            clipped_recon_image, mse_loss, bpp_feature, bpp_z, bpp = net(input)
-            mse_loss, bpp_feature, bpp_z, bpp = \
-                torch.mean(mse_loss), torch.mean(bpp_feature), torch.mean(bpp_z), torch.mean(bpp)
-            psnr = 10 * (torch.log(1. / mse_loss) / np.log(10))
-            sumBpp += bpp
-            sumPsnr += psnr
-            msssim = ms_ssim(clipped_recon_image.cpu().detach(), input, data_range=1.0, size_average=True)
-            msssimDB = -10 * (torch.log(1-msssim) / np.log(10))
-            sumMsssimDB += msssimDB
-            sumMsssim += msssim
-            logger.info("Bpp:{:.6f}, PSNR:{:.6f}, MS-SSIM:{:.6f}, MS-SSIM-DB:{:.6f}".format(bpp, psnr, msssim, msssimDB))
-            cnt += 1
+        test_names = ['clic', 'kodak']
+        for test_name, test_loader in zip(test_names, [clic_loader, kodak_loader]):
+            print(f"evaluating on {test_name}.........")
+            for batch_idx, input in enumerate(test_loader):
+                image, pad = input
+                image = image.cuda()
+                w_pad, h_pad = pad
+                clipped_recon_image, mse_loss, bpp_feature, bpp_z, bpp = net(image, w_pad, h_pad)
+                mse_loss, bpp_feature, bpp_z, bpp = \
+                    torch.mean(mse_loss), torch.mean(bpp_feature), torch.mean(bpp_z), torch.mean(bpp)
+                psnr = 10 * (torch.log(1. / mse_loss) / np.log(10))
+                sumBpp += bpp
+                sumPsnr += psnr
+                msssim = ms_ssim(clipped_recon_image.cpu().detach(), input, data_range=1.0, size_average=True)
+                msssimDB = -10 * (torch.log(1-msssim) / np.log(10))
+                sumMsssimDB += msssimDB
+                sumMsssim += msssim
+                logger.info("Bpp:{:.6f}, PSNR:{:.6f}, MS-SSIM:{:.6f}, MS-SSIM-DB:{:.6f}".format(bpp, psnr, msssim, msssimDB))
+                cnt += 1
 
-        logger.info("Test on Kodak dataset: model-{}".format(step))
-        sumBpp /= cnt
-        sumPsnr /= cnt
-        sumMsssim /= cnt
-        sumMsssimDB /= cnt
-        logger.info("Dataset Average result---Bpp:{:.6f}, PSNR:{:.6f}, MS-SSIM:{:.6f}, MS-SSIM-DB:{:.6f}".format(sumBpp, sumPsnr, sumMsssim, sumMsssimDB))
-        if tb_logger !=None:
-            logger.info("Add tensorboard---Step:{}".format(step))
-            tb_logger.add_scalar("BPP_Test", sumBpp, step)
-            tb_logger.add_scalar("PSNR_Test", sumPsnr, step)
-            tb_logger.add_scalar("MS-SSIM_Test", sumMsssim, step)
-            tb_logger.add_scalar("MS-SSIM_DB_Test", sumMsssimDB, step)
-        else:
-            logger.info("No need to add tensorboard")
+            logger.info("Test on Kodak dataset: model-{}".format(step))
+            sumBpp /= cnt
+            sumPsnr /= cnt
+            sumMsssim /= cnt
+            sumMsssimDB /= cnt
+            logger.info("Dataset Average result---Bpp:{:.6f}, PSNR:{:.6f}, MS-SSIM:{:.6f}, MS-SSIM-DB:{:.6f}".format(sumBpp, sumPsnr, sumMsssim, sumMsssimDB))
+            if tb_logger !=None:
+                logger.info("Add tensorboard---Step:{}".format(step))
+                tb_logger.add_scalar("BPP_Test", sumBpp, step)
+                tb_logger.add_scalar("PSNR_Test", sumPsnr, step)
+                tb_logger.add_scalar("MS-SSIM_Test", sumMsssim, step)
+                tb_logger.add_scalar("MS-SSIM_DB_Test", sumMsssimDB, step)
+            else:
+                logger.info("No need to add tensorboard")
 
 
 if __name__ == "__main__":
@@ -226,7 +234,7 @@ if __name__ == "__main__":
     stdhandler.setFormatter(formatter)
     logger.addHandler(stdhandler)
     tb_logger = None
-    save_path = os.path.join('checkpoints', args.name)
+    save_path = os.path.join('/mnt/tmp/iclr_20_checkpoints', args.name)
     if args.name != '':
         os.makedirs(save_path, exist_ok=True)
         filehandler = logging.FileHandler(os.path.join(save_path, 'log.txt'))
@@ -241,7 +249,7 @@ if __name__ == "__main__":
     logger.info("out_channel_N:{}".format(out_channel_N))
     print(out_channel_N,out_channel_M)
     # model = ImageCompressor(out_channel_N, out_channel_M)
-    model = ImageCompressor(out_channel_N)
+    model = ImageCompressor(out_channel_N, use_ssm=args.use_ssm)
     # pdb.set_trace()
     if args.pretrain != '':
         logger.info("loading model:{}".format(args.pretrain))
@@ -249,9 +257,12 @@ if __name__ == "__main__":
     net = model.cuda()
     net = torch.nn.DataParallel(net, list(range(gpu_num)))
     parameters = net.parameters()
-    global test_loader
-    test_dataset = TestKodakDataset(data_dir=args.val)
-    test_loader = DataLoader(dataset=test_dataset, shuffle=False, batch_size=1, pin_memory=True, num_workers=1)
+    global kodak_loader
+    global clic_loader
+    kodak_dataset = TestKodakDataset(data_dir='/mnt/tmp/kodak')
+    clic_dataset = TestKodakDataset(data_dir='/mnt/tmp/clic')
+    kodak_loader = DataLoader(dataset=kodak_dataset, shuffle=False, batch_size=1, pin_memory=True, num_workers=1)
+    clic_loader = DataLoader(dataset=clic_dataset, shuffle=False, batch_size=1, pin_memory=True, num_workers=1)
     if args.test:
         testKodak(global_step)
         exit(-1)
@@ -259,8 +270,8 @@ if __name__ == "__main__":
     # save_model(model, 0)
     global train_loader
     tb_logger = SummaryWriter(os.path.join(save_path, 'events'))
-    train_data_dir = args.train
-    train_dataset = Datasets(train_data_dir, image_size)
+    train_data_dir = "/mnt/tmp/ImageNet/test"
+    train_dataset = Datasets(train_data_dir, image_size, num_images=num_images)
     train_loader = DataLoader(dataset=train_dataset,
                               batch_size=batch_size,
                               shuffle=True,

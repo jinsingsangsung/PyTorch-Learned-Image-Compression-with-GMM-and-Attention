@@ -2,7 +2,7 @@
 import math
 import torch.nn as nn
 import torch
-
+import torch.nn.functional as F
 
 class Hyper_analysis(nn.Module):
     def __init__(self, num_filters=128):
@@ -21,16 +21,16 @@ class Hyper_analysis(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         x = self.leaky_relu1(x)
-        # print(x.shape)
+        h, w = x.shape[-2:]
         x = self.leaky_relu2(self.conv2(x))
-        # print(x.shape)
+        pad_list = [(0, w%2, 0, h%2)]
+        x = F.pad(x, (0, w%2, 0, h%2))
         x = self.leaky_relu3(self.conv3(x))
-        # print(x.shape)
+        h, w = x.shape[-2:]
+        pad_list.append((0, w%2, 0, h%2))
         x = self.leaky_relu4(self.conv4(x))
-        # print(x.shape)
         x = self.conv5(x)
-        # print(x.shape)
-        return x
+        return x, pad_list
 
 if __name__ == "__main__":
     hyper_analysis = Hyper_analysis()

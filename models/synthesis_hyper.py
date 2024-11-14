@@ -17,10 +17,14 @@ class Hyper_synthesis(nn.Module):
         # self.conv5 = nn.ConvTranspose2d(int(num_filters*1.5), num_filters*2, 3, stride=1, padding=1)
         self.conv5 = nn.ConvTranspose2d(int(num_filters*1.5), num_filters*2, 3, stride=1, padding=1)
     
-    def forward(self, x):
+    def forward(self, x, pad_list):
         x = self.leaky_relu1(self.conv1(x))
+        if pad_list[1] != (0,0,0,0):
+            x = x[:, :, :x.size(2)-pad_list[1][3], :x.size(3)-pad_list[1][1]]
         x = self.leaky_relu2(self.conv2(x))
         x = self.leaky_relu3(self.conv3(x))
+        if pad_list[0] != (0,0,0,0):
+            x = x[:, :, :x.size(2)-pad_list[0][3], :x.size(3)-pad_list[0][1]]
         x = self.leaky_relu4(self.conv4(x))
         x = self.conv5(x)
         return x

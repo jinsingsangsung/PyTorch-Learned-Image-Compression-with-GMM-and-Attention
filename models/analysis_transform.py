@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch
 from .GDN import GDN
 from .attention import Attention
-
+from .mambaconv import MambaConv2d
 # class Analysis_transform(nn.Module):
 #     def __init__(self, num_filters=128):
 #         super(Analysis_transform, self).__init__()
@@ -77,7 +77,7 @@ from .attention import Attention
 #         return x
 
 class Analysis_transform(nn.Module):
-    def __init__(self, num_filters=128):
+    def __init__(self, num_filters=128, use_ssm=False):
         super(Analysis_transform, self).__init__()
         # i = 0
         self.b0_shortcut = nn.Conv2d(3, num_filters, 1, stride=2)
@@ -116,15 +116,48 @@ class Analysis_transform(nn.Module):
         self.b3_layer1_relu = nn.LeakyReLU()
         self.b3_layer2 = nn.Conv2d(num_filters, num_filters, 3, stride=2, padding=1, bias=False)
         self.attention2 = Attention(num_filters)
-
+        self.downscaler = nn.ModuleList([
+            nn.AvgPool2d(3, stride=2, padding=1),
+            nn.AvgPool2d(3, stride=2, padding=1),
+            nn.AvgPool2d(3, stride=2, padding=1),
+            nn.AvgPool2d(3, stride=2, padding=1),
+        ])
+        if use_ssm:
+            self.mambaconvs = nn.ModuleList([
+                 MambaConv2d(3, num_filters, kernel_size=4, stride=4, padding=0, bias=False, dim_preserve=True),
+                 MambaConv2d(3, num_filters, kernel_size=4, stride=4, padding=0, bias=False, dim_preserve=True),
+                 MambaConv2d(3, num_filters, kernel_size=2, stride=2, padding=0, bias=False, dim_preserve=True),
+                 MambaConv2d(3, num_filters, kernel_size=2, stride=2, padding=0, bias=False, dim_preserve=True),
+            ])
+            self.initial_mambaconv = MambaConv2d(3, 3, kernel_size=4, stride=4, padding=0, bias=False, dim_preserve=True)
+        self.use_ssm = use_ssm
+        self.num_filters = num_filters
 
     def forward(self, x):
+        interm_signals = []
+        x_ = x.clone()
+        if self.use_ssm:
+             for downscaler, mambaconv in zip(self.downscaler, self.mambaconvs):
+                 x_ = downscaler(x_)
+                 m = mambaconv(x_)
+                 if x_.size(2)%2 == 1 or x_.size(3)%2 == 1:
+                      padding = (0, x_.size(3)%2, 0, x_.size(2)%2)
+                      m = F.pad(m, padding, "replicate")
+                 interm_signals.append(m)
+             x = self.initial_mambaconv(x)
+        else:
+             for downscaler in self.downscaler:
+                x_ = downscaler(x_)
+                h, w = x_.shape[-2:]
+                interm_signals.append(torch.zeros(x_.size(0), self.num_filters, h, w, \
+                                                  device=x.device, requires_grad=False))    
+
         # i = 0
         shortcut0 = self.b0_shortcut(x)
         b0 = self.b0_layer2(x)
         b0 = self.b0_layer2_relu(b0)
         b0 = self.b0_layer3(b0)
-        b0 = self.b0_layer3_GDN(b0)
+        b0 = self.b0_layer3_GDN(b0 + interm_signals[0])
         b0 += shortcut0
 
         # i = 1
@@ -137,7 +170,7 @@ class Analysis_transform(nn.Module):
         b1 = self.b1_layer2(b1)
         b1 = self.b1_layer2_relu(b1)
         b1 = self.b1_layer3(b1)
-        b1 = self.b1_layer3_GDN(b1)
+        b1 = self.b1_layer3_GDN(b1 + interm_signals[1])
         b1 += shortcut1
         b1 = self.attention1(b1)
 
@@ -151,7 +184,7 @@ class Analysis_transform(nn.Module):
         b2 = self.b2_layer2(b2)
         b2 = self.b2_layer2_relu(b2)
         b2 = self.b2_layer3(b2)
-        b2 = self.b2_layer3_GDN(b2)
+        b2 = self.b2_layer3_GDN(b2 + interm_signals[2])
         b2 += shortcut2
 
         # i = 3
@@ -160,7 +193,7 @@ class Analysis_transform(nn.Module):
         b3 = self.b3_layer1(b3)
         b3 = self.b3_layer1_relu(b3)
         b3 += b2
-        b3 = self.b3_layer2(b3)
+        b3 = self.b3_layer2(b3) + interm_signals[3]
         b3 = self.attention2(b3)
 
         return b3

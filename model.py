@@ -36,14 +36,14 @@ def load_model(model, f):
 
 
 class ImageCompressor(nn.Module):
-    def __init__(self, out_channel_N=128):
+    def __init__(self, out_channel_N=128, use_ssm=False):
     # def __init__(self, out_channel_N=192, out_channel_M=320):
         super(ImageCompressor, self).__init__()
         # self.Encoder = Analysis_net(out_channel_N=out_channel_N, out_channel_M=out_channel_M)
         # self.Decoder = Synthesis_net(out_channel_N=out_channel_N, out_channel_M=out_channel_M)
         # self.priorEncoder = Analysis_prior_net(out_channel_N=out_channel_N, out_channel_M=out_channel_M)
         # self.priorDecoder = Synthesis_prior_net(out_channel_N=out_channel_N, out_channel_M=out_channel_M)
-        self.Encoder = Analysis_transform(out_channel_N)
+        self.Encoder = Analysis_transform(out_channel_N, use_ssm)
         self.Decoder = Synthesis_transform(out_channel_N)
         self.priorEncoder = Hyper_analysis(out_channel_N)
         self.priorDecoder = Hyper_synthesis(out_channel_N)
@@ -52,7 +52,8 @@ class ImageCompressor(nn.Module):
         self.out_channel_N = out_channel_N
         # self.out_channel_M = out_channel_M
 
-    def forward(self, input_image):
+    def forward(self, input_image, w_pad=0, h_pad=0):
+        w, h = input_image.shape[-2:]
         quant_noise_feature = torch.zeros(input_image.size(0), self.out_channel_N, input_image.size(2) // 16, input_image.size(3) // 16).cuda()
         quant_noise_z = torch.zeros(input_image.size(0), self.out_channel_N, input_image.size(2) // 64, input_image.size(3) // 64).cuda()
         quant_noise_feature = torch.nn.init.uniform_(torch.zeros_like(quant_noise_feature), -0.5, 0.5)
@@ -60,12 +61,12 @@ class ImageCompressor(nn.Module):
         feature = self.Encoder(input_image)
         batch_size = feature.size()[0]
 
-        z = self.priorEncoder(feature)
+        z, pad_list = self.priorEncoder(feature)
         if self.training:
             compressed_z = z + quant_noise_z
         else:
             compressed_z = torch.round(z)
-        phi = self.priorDecoder(compressed_z)
+        phi = self.priorDecoder(compressed_z, pad_list)
         feature_renorm = feature
         if self.training:
             compressed_feature_renorm = feature_renorm + quant_noise_feature
@@ -78,6 +79,8 @@ class ImageCompressor(nn.Module):
         recon_image = self.Decoder(compressed_feature_renorm)
         # recon_image = prediction + recon_res
         clipped_recon_image = recon_image.clamp(0., 1.)
+        clipped_recon_image = clipped_recon_image[:, :, w_pad//2:w_pad//2+w, h_pad//2:h_pad//2+h]
+        clipped_input_image = input_image[:, :, w_pad//2:w_pad//2+w, h_pad//2:h_pad//2+h]
         # distortion
         mse_loss = torch.mean((recon_image - input_image).pow(2))
         im_shape = input_image.size()
